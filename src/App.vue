@@ -48,7 +48,8 @@ import { ref, onMounted } from "vue";
 import { io } from "socket.io-client";
 
 // ✅ Cambia esta URL por la de tu backend en Render
-const socket = io("https://pizarra-backend.onrender.com");
+const socket = io(import.meta.env.VITE_BACKEND_URL); // ✅ BIEN
+
 
 const canvas = ref(null);
 const container = ref(null);
