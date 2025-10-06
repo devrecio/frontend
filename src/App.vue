@@ -44,12 +44,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { io } from "socket.io-client";
 
-// ✅ Cambia esta URL por la de tu backend en Render
-const socket = io(import.meta.env.VITE_BACKEND_URL); // ✅ BIEN
-
+// ✅ URL del backend (ajusta si es necesario)
+const socket = io(import.meta.env.VITE_BACKEND_URL);
 
 const canvas = ref(null);
 const container = ref(null);
@@ -58,9 +57,9 @@ let ctx = null;
 // Estado general
 let drawing = false;
 let lastPos = { x: 0, y: 0 };
-let mode = ref("draw");
+let mode = ref("draw"); // draw | eraser | hand
 
-// Parámetros de pincel
+// Herramientas
 const color = ref("#000000");
 const lineWidth = ref(4);
 
@@ -68,7 +67,7 @@ const lineWidth = ref(4);
 const menuOpen = ref(false);
 const toggleMenu = () => (menuOpen.value = !menuOpen.value);
 
-// Mano
+// Modo Mano (arrastre)
 let handDragging = false;
 let startX = 0;
 let startY = 0;
@@ -78,41 +77,52 @@ let offsetY = 0;
 // Fondo
 const backgroundColor = ref("#ffffff");
 
-// Historial local
+// Historial de trazos
 let strokes = [];
 
-// === MONTAJE ===
+// Cambiar de modo
+const setMode = (newMode) => {
+  if (drawing) stopDrawing();
+  mode.value = newMode;
+  updateCursor();
+};
+
+// === Ciclo de vida ===
 onMounted(() => {
   ctx = canvas.value.getContext("2d");
   updateCursor();
   drawCanvas();
 
-  // Recibir historial inicial
+  // Eventos socket
   socket.on("init", (data) => {
     strokes = data;
     drawCanvas();
   });
 
-  // Dibujos en tiempo real
   socket.on("drawing", (data) => {
     strokes.push(data);
     drawStroke(data);
   });
 
-  // Sincronizar historia (undo/redo)
   socket.on("syncHistory", (data) => {
     strokes = data;
     drawCanvas();
   });
 
-  // Limpiar
   socket.on("clear", () => {
     strokes = [];
     drawCanvas();
   });
 });
 
-// === CURSOR ===
+onUnmounted(() => {
+  socket.off("init");
+  socket.off("drawing");
+  socket.off("syncHistory");
+  socket.off("clear");
+});
+
+// === Cursor dinámico ===
 function updateCursor() {
   if (!canvas.value) return;
   switch (mode.value) {
@@ -128,7 +138,7 @@ function updateCursor() {
   }
 }
 
-// === DIBUJO ===
+// === Dibujo ===
 const handleMouseDown = (e) => {
   if (mode.value === "hand") return;
   drawing = true;
@@ -136,7 +146,8 @@ const handleMouseDown = (e) => {
 };
 
 const handleMouseMove = (e) => {
-  if (!drawing) return;
+  if (mode.value === "hand" || !drawing) return;
+
   const pos = getMousePos(e);
   const drawColor = mode.value === "eraser" ? backgroundColor.value : color.value;
 
@@ -170,7 +181,7 @@ const stopDrawing = () => {
   drawing = false;
 };
 
-// === BOTONES ===
+// === Botones ===
 const clearCanvas = () => {
   strokes = [];
   socket.emit("clear");
@@ -187,7 +198,7 @@ const saveCanvas = () => {
 const undoAction = () => socket.emit("undo");
 const redoAction = () => socket.emit("redo");
 
-// === MANO ===
+// === Modo Mano ===
 const startHandDrag = (e) => {
   if (mode.value !== "hand") return;
   handDragging = true;
@@ -197,7 +208,7 @@ const startHandDrag = (e) => {
 };
 
 const handDrag = (e) => {
-  if (!handDragging) return;
+  if (!handDragging || mode.value !== "hand") return;
   const clientX = e.clientX || e.touches?.[0]?.clientX;
   const clientY = e.clientY || e.touches?.[0]?.clientY;
   offsetX += clientX - startX;
@@ -212,20 +223,24 @@ const stopHandDrag = () => {
   updateCursor();
 };
 
-// === TOUCH ===
+// === Touch ===
 const handleTouchStart = (e) => {
   if (mode.value === "hand") startHandDrag(e);
   else handleMouseDown(e.touches[0]);
 };
+
 const handleTouchMove = (e) => {
   if (mode.value === "hand") handDrag(e);
   else handleMouseMove(e.touches[0]);
 };
 
-// === AUX ===
+// === Auxiliares ===
 function getMousePos(e) {
   const rect = canvas.value.getBoundingClientRect();
-  return { x: e.clientX - rect.left - offsetX, y: e.clientY - rect.top - offsetY };
+  return {
+    x: e.clientX - rect.left - offsetX,
+    y: e.clientY - rect.top - offsetY,
+  };
 }
 
 function drawCanvas() {
@@ -287,5 +302,6 @@ canvas {
   z-index: 10;
 }
 </style>
+
 
 
